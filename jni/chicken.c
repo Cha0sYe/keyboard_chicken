@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <linux/input.h>
+#include <linux/input-event-codes.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -10,7 +11,9 @@
 #include <fcntl.h>
 #include <unistd.h>
 
-#define BUFFER_SIZE 512
+#define BUFFER_SIZE 80
+#define KEYBOARD_EVENT "/dev/input/event8"
+#define MOUSE_EVENT "/dev/input/event9"
 
 int d_pad_statemachine()
 {
@@ -40,30 +43,40 @@ int connect_server(char* sockname)
     return fd;
 }
 
-void send_tap(int fd, int x, int y)
+void send_touch_down(int fd, int finger, int x, int y)
 {
     char send_buf[BUFFER_SIZE];
-    snprintf(send_buf, BUFFER_SIZE, "d 0 %d %d 0", x, y);
-    send(fd, send_buf, sizeof(send_buf), 0);
-    snprintf(send_buf, BUFFER_SIZE, "c");
-    send(fd, send_buf, sizeof(send_buf), 0);
-    usleep(200000);
-    snprintf(send_buf, BUFFER_SIZE, "u 0");
-    send(fd, send_buf, sizeof(send_buf), 0);
-    snprintf(send_buf, BUFFER_SIZE, "c");
-    send(fd, send_buf, sizeof(send_buf), 0);
+    snprintf(send_buf, BUFFER_SIZE, "d %d %d %d 0\r\n", finger, x, y);
+    send(fd, send_buf, strlen(send_buf), 0);
+	fprintf(stderr, "%s\n", send_buf);
+	usleep(10000);
+    snprintf(send_buf, BUFFER_SIZE, "c\r\n");
+    send(fd, send_buf, strlen(send_buf), 0);
+	fprintf(stderr, "%s\n", send_buf);
+}
+
+void send_touch_up(int fd, int finger)
+{
+	char send_buf[BUFFER_SIZE];
+    snprintf(send_buf, BUFFER_SIZE, "u %d\r\n", finger);
+    send(fd, send_buf, strlen(send_buf), 0);
+	fprintf(stderr, "%s\n", send_buf);
+	usleep(10000);
+    snprintf(send_buf, BUFFER_SIZE, "c\r\n");
+    send(fd, send_buf, strlen(send_buf), 0);
+	fprintf(stderr, "%s\n", send_buf);
 }
 
 int main(int argc, char** argv)
 {
-    int keys_fd;
+    int keyboard_fd;
     int server_fd = -1;
     struct input_event t;
     char* sockname = "minitouch";
-    keys_fd = open(argv[1], O_RDONLY);
-    if (keys_fd <= 0)
+    keyboard_fd = open(KEYBOARD_EVENT, O_RDONLY);
+    if (keyboard_fd <= 0)
     {
-        fprintf(stderr,"open %s error\n", argv[1]);
+        fprintf(stderr,"open %s error\n", KEYBOARD_EVENT);
         return EXIT_FAILURE;
     }
     server_fd = connect_server(sockname);
@@ -74,13 +87,19 @@ int main(int argc, char** argv)
     }
     while (1)
     {
-        read(keys_fd, &t, sizeof(struct input_event));
-        if(t.type == 1)
+        read(keyboard_fd, &t, sizeof(struct input_event));
+        if(t.type == EV_KEY)
         {
-            fprintf(stderr, "key %i state %i \n", t.code, t.value);
-            send_tap(server_fd, 600, 1600);
+			fprintf(stderr, "key %i state %i \n", t.code, t.value);
+			if(t.code == KEY_A)
+			{
+				if(t.value == 1)
+					send_touch_down(server_fd, 0, 600, 1600);
+				else
+					send_touch_up(server_fd, 0);
+			}
         }
     }
-    close(keys_fd);
+    close(keyboard_fd);
     return EXIT_SUCCESS;
 }
