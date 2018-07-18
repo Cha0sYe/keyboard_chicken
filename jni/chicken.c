@@ -127,6 +127,16 @@ void send_touch_up(int fd, int finger)
     send(fd, send_buf, strlen(send_buf), 0);
 }
 
+void send_touch_move(int fd, int finger, int x, int y)
+{
+    char send_buf[BUFFER_SIZE];
+    snprintf(send_buf, BUFFER_SIZE, "m %d %d %d 0\r\n", finger, x, y);
+    send(fd, send_buf, strlen(send_buf), 0);
+	usleep(10000);
+    snprintf(send_buf, BUFFER_SIZE, "c\r\n");
+    send(fd, send_buf, strlen(send_buf), 0);
+}
+
 int main(int argc, char** argv)
 {
     int keyboard_fd;
@@ -135,7 +145,8 @@ int main(int argc, char** argv)
     char* sockname = "minitouch";
     keyboard_fd = open(KEYBOARD_EVENT, O_RDONLY);
 
-    enum d_pad_dir current_dir = DIR_NONE;
+    static enum d_pad_dir current_dir = DIR_NONE;
+    static enum d_pad_dir previous_dir = DIR_NONE;
     static int run_state = 0;
 
     if (keyboard_fd <= 0)
@@ -175,13 +186,24 @@ int main(int argc, char** argv)
                 case KEY_D:
                 case KEY_LEFTSHIFT:
                     run_state = (t.code == KEY_LEFTSHIFT) ? t.value : run_state;
+                    previous_dir = current_dir;
                     current_dir = d_pad_statemachine(t.code, t.value);
-                    send_touch_down(server_fd, 0,
-                            run_state ? run_coordinate[current_dir][0] : walk_coordinate[current_dir][0],
-                            run_state ? run_coordinate[current_dir][1] : walk_coordinate[current_dir][1]);
-                    fprintf(stderr, "dir = %d run = %d\n", current_dir, run_state);
-                    usleep(1000);
-                    send_touch_up(server_fd, 0);
+                    if(previous_dir == current_dir) break;
+                    if(previous_dir == DIR_NONE)
+                    {
+                        send_touch_down(server_fd, 0, walk_coordinate[current_dir][0], walk_coordinate[current_dir][1]);
+                        fprintf(stderr, "send touch down\n");
+                    } else if(current_dir == DIR_NONE)
+                    {
+                        send_touch_up(server_fd, 0);
+                        fprintf(stderr, "send touch up\n");
+                    } else
+                    {
+                        send_touch_move(server_fd, 0,
+                                run_state ? run_coordinate[current_dir][0] : walk_coordinate[current_dir][0],
+                                run_state ? run_coordinate[current_dir][1] : walk_coordinate[current_dir][1]);
+                        fprintf(stderr, "dir = %d run = %d\n", current_dir, run_state);
+                    }
                     break;
                 default:
                     break;
